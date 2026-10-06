@@ -39,3 +39,16 @@ class LiquorSample(models.Model):
     taken_at = models.DateTimeField(auto_now_add=True)
     ph = models.FloatField()
     operator = models.CharField(max_length=64, blank=True)
+
+
+class AppSetting(models.Model):
+    """全局开关。value 存 "1"/"0"，缺失即关闭。"""
+
+    name = models.CharField(max_length=64, unique=True)
+    value = models.BooleanField(default=False)
+
+    SETTING_PH_ONE_DECIMAL = "ph_one_decimal"
+
+    @classmethod
+    def is_on(cls, name: str) -> bool:
+        return bool(cls.objects.filter(name=name, value=True).exists())
