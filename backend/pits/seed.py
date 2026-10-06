@@ -1,7 +1,11 @@
-from pits.models import LiquorSample, Pit, User, Yard
+from pits.models import GateSwitch, LiquorSample, Pit, User, Yard
+from pits.rules import GATE_ONE_DECIMAL, GATE_ONE_DECIMAL_LABEL
 
 
 def seed_demo() -> None:
+    GateSwitch.objects.get_or_create(
+        key=GATE_ONE_DECIMAL, defaults={"label": GATE_ONE_DECIMAL_LABEL}
+    )
     admin, _ = User.objects.get_or_create(username="admin", defaults={"role": "admin"})
     admin.role = "admin"
     admin.set_password("123456")

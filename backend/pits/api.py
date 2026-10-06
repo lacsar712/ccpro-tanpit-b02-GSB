@@ -1,9 +1,18 @@
+from typing import Any
+
 from ninja import NinjaAPI, Schema
 from ninja.errors import HttpError
 
 from pits.auth import BearerAuth, make_token
-from pits.models import Pit, User, Yard
-from pits.rules import RuleError, assert_can_set_status, latest_ph
+from pits.models import GateSwitch, Pit, User, Yard
+from pits.rules import (
+    GATE_ONE_DECIMAL,
+    GATE_ONE_DECIMAL_LABEL,
+    RuleError,
+    assert_can_set_status,
+    latest_ph,
+    parse_ph_for_write,
+)
 
 api = NinjaAPI(title="TanPit", urls_namespace="tanpit")
 auth = BearerAuth()
@@ -15,11 +24,16 @@ class LoginIn(Schema):
 
 
 class SampleIn(Schema):
-    ph: float
+    # 保留原始写入形式（整数/浮点/字符串），小数位规矩按写入形式判定
+    ph: Any
 
 
 class StatusIn(Schema):
     status: str
+
+
+class GateIn(Schema):
+    enabled: bool
 
 
 def pit_json(pit: Pit) -> dict:
@@ -32,6 +46,16 @@ def pit_json(pit: Pit) -> dict:
         "latestPh": latest_ph(pit),
         "sampleCount": pit.samples.count(),
     }
+
+
+def gate_json(switch: GateSwitch) -> dict:
+    return {"key": switch.key, "label": switch.label, "enabled": switch.enabled}
+
+
+def ensure_gates() -> None:
+    GateSwitch.objects.get_or_create(
+        key=GATE_ONE_DECIMAL, defaults={"label": GATE_ONE_DECIMAL_LABEL}
+    )
 
 
 @api.post("/auth/login")
@@ -62,12 +86,45 @@ def board(request):
     return {"yard": yard.name, "village": yard.village, "pits": [pit_json(p) for p in pits]}
 
 
+@api.get("/gates", auth=auth)
+def list_gates(request):
+    ensure_gates()
+    switches = GateSwitch.objects.all().order_by("key")
+    return {"gates": [gate_json(s) for s in switches]}
+
+
+def set_gate(user: User, key: str, enabled: bool) -> dict:
+    if user.role != "admin":
+        raise HttpError(403, "只有管理员可以拨动闸门开关")
+    ensure_gates()
+    switch = GateSwitch.objects.filter(key=key).first()
+    if switch is None:
+        raise HttpError(404, "闸门不存在")
+    switch.enabled = enabled
+    switch.save(update_fields=["enabled"])
+    return gate_json(switch)
+
+
+@api.put("/gates/{key}", auth=auth)
+def set_gate_put(request, key: str, payload: GateIn):
+    return set_gate(request.auth, key, payload.enabled)
+
+
+@api.post("/gates/{key}", auth=auth)
+def set_gate_post(request, key: str, payload: GateIn):
+    return set_gate(request.auth, key, payload.enabled)
+
+
 @api.post("/pits/{pit_id}/samples", auth=auth)
 def add_sample(request, pit_id: int, payload: SampleIn):
     pit = Pit.objects.filter(id=pit_id).first()
     if pit is None:
         raise HttpError(404, "坑不存在")
-    pit.samples.create(ph=payload.ph, operator=request.auth.username)
+    try:
+        ph = parse_ph_for_write(payload.ph)
+    except RuleError as exc:
+        raise HttpError(400, str(exc))
+    pit.samples.create(ph=ph, operator=request.auth.username)
     pit.refresh_from_db()
     return pit_json(pit)
 

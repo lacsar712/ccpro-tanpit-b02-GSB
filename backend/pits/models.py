@@ -34,6 +34,12 @@ class Pit(models.Model):
         unique_together = ("yard", "code")
 
 
+class GateSwitch(models.Model):
+    key = models.CharField(max_length=40, unique=True)
+    label = models.CharField(max_length=120)
+    enabled = models.BooleanField(default=False)
+
+
 class LiquorSample(models.Model):
     pit = models.ForeignKey(Pit, on_delete=models.CASCADE, related_name="samples")
     taken_at = models.DateTimeField(auto_now_add=True)
